@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全屏迷宫游戏</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: auto;
+        }
+
+        #canvas {
+            display: block;
+        }
+
+        #speed-progress-bar {
+            position: fixed;
+            bottom: 10px; /* 可以根据需要调整垂直位置 */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1000px;
+            height: 20px;
+            background-color: #ccc;
+            display: none;
+        }
+
+        #speed-progress {
+            height: 100%;
+            background-color: #ff00ff;
+            width: 0%;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <!-- 新增进度条容器 -->
+    <div id="speed-progress-bar" style="display: none;">
+        <div id="speed-progress"></div>
+    </div>
+    <script>
+	/*
+		background-image: url('https://picsum.photos/1920/1080');
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
+	*/
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const speedProgressBar = document.getElementById('speed-progress-bar');
+        const speedProgress = document.getElementById('speed-progress');
+
+        // 设置 canvas 全屏
+        function setCanvasSize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        setCanvasSize();
+        window.addEventListener('resize', setCanvasSize);
+
+        // 迷宫参数，将格子大小放大 1.5 倍
+        const cellSize = 45;
+        const margainLeftRight = 25; // 左右边缘厚度
+        const margainTopButton = 25; // 上下边缘厚度
+        const mazeWidth = Math.floor((canvas.width - margainLeftRight * 2) / cellSize);
+        const mazeHeight = Math.floor((canvas.height - margainTopButton * 2) / cellSize);
+
+        // 迷宫数组，每个格子存储其四个方向的墙的状态（0 表示无墙，1 表示有墙）
+        let maze = [];
+        function shuffleArray(array) { // 随机打乱
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+        function swapArrayElements(arr, index1, index2) { // 交换数组指定索引的两个数
+            const temp = arr[index1];
+            arr[index1] = arr[index2];
+            arr[index2] = temp;
+            return arr;
+        }
+        // 计算两点之间的曼哈顿距离（考虑边缘传送）
+        function heuristic(a, b) {
+            return Math.min(Math.abs(a.x - b.x), mazeWidth - Math.abs(a.x - b.x)) + Math.min(Math.abs(a.y - b.y), mazeHeight - Math.abs(a.y - b.y));
+        }
+
+        // 生成迷宫（深度优先搜索算法）
+        function generateMaze() {
+            maze = [];
+            for (let y = 0; y < mazeHeight; y++) {
+                maze[y] = [];
+                for (let x = 0; x < mazeWidth; x++) {
+                    maze[y][x] = {
+                        top: 1,
+                        right: 1,
+                        bottom: 1,
+                        left: 1,
+                        visited: false
+                    };
+                }
+            }
+            const stack = [];
+            const startX = Math.floor(Math.random() * mazeWidth);
+            const startY = Math.floor(Math.random() * mazeHeight);
+            const current = { x: startX, y: startY };
+            maze[current.y][current.x].visited = true;
+            stack.push(current);
+
+            while (stack.length > 0) {
+                const neighbors = [];
+                if (current.y > 0 && !maze[current.y - 1][current.x].visited) neighbors.push({ x: current.x, y: current.y - 1, direction: 'top' });
+                if (current.y < mazeHeight - 1 && !maze[current.y + 1][current.x].visited) neighbors.push({ x: current.x, y: current.y + 1, direction: 'bottom' });
+                if (current.x > 0 && !maze[current.y][current.x - 1].visited) neighbors.push({ x: current.x - 1, y: current.y, direction: 'left' });
+                if (current.x < mazeWidth - 1 && !maze[current.y][current.x + 1].visited) neighbors.push({ x: current.x + 1, y: current.y, direction: 'right' });
+                shuffleArray(neighbors);
+                if (neighbors.length > 0) {
+                    const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    switch (next.direction) {
+                        case 'top':
+                            maze[current.y][current.x].top = 0;
+                            maze[next.y][next.x].bottom = 0;
+                            break;
+                        case 'right':
+                            maze[current.y][current.x].right = 0;
+                            maze[next.y][next.x].left = 0;
+                            break;
+                        case 'bottom':
+                            maze[current.y][current.x].bottom = 0;
+                            maze[next.y][next.x].top = 0;
+                            break;
+                        case 'left':
+                            maze[current.y][current.x].left = 0;
+                            maze[next.y][next.x].right = 0;
+                            break;
+                    }
+                    maze[next.y][next.x].visited = true;
+                    stack.push(next);
+                    current.x = next.x;
+                    current.y = next.y;
+                } else {
+                    stack.pop();
+                    if (stack.length > 0) {
+                        current.x = stack[stack.length - 1].x;
+                        current.y = stack[stack.length - 1].y;
+                    }
+                }
+            }
+
+            // 随机打破一些墙以增加回路
+            const breakRate = 0.1; // 打破墙的概率，可根据需要调整
+            for (let y = 0; y < mazeHeight; y++) {
+                for (let x = 0; x < mazeWidth; x++) {
+                    if (Math.random() < breakRate) {
+                        if (x < mazeWidth - 1 && maze[y][x].right === 1) {
+                            maze[y][x].right = 0;
+                            maze[y][x + 1].left = 0;
+                        } else if (y < mazeHeight - 1 && maze[y][x].bottom === 1) {
+                            maze[y][x].bottom = 0;
+                            maze[y + 1][x].top = 0;
+                        }
+                    }
+                }
+            }
+
+            // 随机打破一些边缘墙使上下/左右贯通
+            const breakEdges = 0.05 * ((mazeWidth + mazeHeight) * 2 - 4); // 打破边缘墙的数量
+            let edgePos = []; // 边缘位置
+            for(let x = 1; x < mazeWidth - 1; x++){
+                edgePos.push({x: x, y: 0, direction: 'top'});
+                edgePos.push({x: x, y: mazeHeight - 1, direction: 'bottom'});
+            }
+            for(let y = 0; y < mazeHeight; y++){
+                edgePos.push({x: 0, y: y, direction: 'left'});
+                edgePos.push({x: mazeWidth - 1, y: y, direction: 'right'});
+            }
+            let num = 0;
+            while(edgePos.length > 0 && num < breakEdges){
+                const randomEdgePosId = Math.floor(Math.random() * edgePos.length);
+                const randomEdgePos = edgePos[randomEdgePosId];
+                swapArrayElements(edgePos, randomEdgePosId, 0);
+                edgePos.shift(); // 删除已经选过的位置
+                // console.log(num,mazeHeight,mazeWidth);
+                switch(randomEdgePos.direction) {
+                    case 'top':
+                        // console.log(randomEdgePos);
+                        maze[randomEdgePos.y][randomEdgePos.x].top = 0;
+                        maze[mazeHeight - randomEdgePos.y - 1][randomEdgePos.x].bottom = 0;
+                        break;
+                    case 'right':
+                        // console.log(randomEdgePos);
+                        maze[randomEdgePos.y][randomEdgePos.x].right = 0;
+                        maze[randomEdgePos.y][mazeWidth - randomEdgePos.x - 1].left = 0;
+                        break;
+                    case 'bottom':
+                        // console.log(randomEdgePos);
+                        maze[randomEdgePos.y][randomEdgePos.x].bottom = 0;
+                        maze[mazeHeight - randomEdgePos.y - 1][randomEdgePos.x].top = 0;
+                        break;
+                    case 'left':
+                        // console.log(randomEdgePos);
+                        maze[randomEdgePos.y][randomEdgePos.x].left = 0;
+                        maze[randomEdgePos.y][mazeWidth - randomEdgePos.x - 1].right = 0;
+                        break;
+                }
+                num ++ ;
+            }
+        }
+        generateMaze();
+
+        function getNeighbors(x, y, preferredDirections = []) {
+            // 返回包含周围位置{x,y,direction}的一个对象数组
+            const neighbors = [];
+            if (Number.isInteger(y) && y >= 0 && y < mazeHeight && Number.isInteger(x) && x >= 0 && x < mazeWidth) {
+                if (maze[y][x].top === 0) neighbors.push({ x: x, y: y - 1, direction: 'top' });
+                if (maze[y][x].bottom === 0) neighbors.push({ x: x, y: y + 1, direction: 'bottom' });
+                if (maze[y][x].left === 0) neighbors.push({ x: x - 1, y: y, direction: 'left' });
+                if (maze[y][x].right === 0) neighbors.push({ x: x + 1, y: y, direction: 'right' });
+            }
+
+            const preferredNeighbors = [];
+            for (const direction of preferredDirections) {
+                const index = neighbors.findIndex(neighbor => neighbor.direction === direction);
+                if (index !== -1) {
+                    const neighbor = neighbors.splice(index, 1)[0]; // 查找并移除偏好方向的邻居
+                    preferredNeighbors.push(neighbor);
+                }
+            }
+
+            const remainingNeighbors = neighbors;
+            shuffleArray(remainingNeighbors);
+
+            return [...preferredNeighbors, ...remainingNeighbors];
+        }
+
+        // 传送门数组
+        const numPortals = Math.floor(Math.random() * 2 + 3); // 传送门数量，可根据需要调整
+        const portals = [];
+        for (let i = 0; i < numPortals; i++) {
+            let portalX = Math.floor(Math.random() * mazeWidth);
+            let portalY = Math.floor(Math.random() * mazeHeight);
+            const portal = {
+                x: portalX,
+                y: portalY,
+                color: 'rgba(255,255,0,0.58)',
+                draw() {
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(margainLeftRight + this.x * cellSize, margainTopButton + this.y * cellSize, cellSize, cellSize);
+                }
+            };
+            portals.push(portal);
+        }
+        /*
+        function limitNumber(&x,a,b){
+            if(x > a) x=a;
+            if(x < b) x=b;
+        }
+        */
+        function inverseWall(posX, posY){
+        // 返回是否成功执行
+            if (posX < 0 || posX >= mazeWidth || posY < 0 || posY >= mazeHeight) return false;
+            let otherSideX, otherSideY;// 墙对面的位置
+
+            //top
+            otherSideX = posX;otherSideY = posY - 1;
+            if(otherSideY < 0) otherSideY = mazeHeight - 1;
+            maze[posY][posX].top ^= 1;
+            maze[otherSideY][otherSideX].bottom ^= 1;
+
+            //bottom
+            otherSideX = posX;otherSideY = posY + 1;
+            if(otherSideY >= mazeHeight) otherSideY = 0;
+            maze[posY][posX].bottom ^= 1;
+            maze[otherSideY][otherSideX].top ^= 1;
+
+            //left
+            otherSideX = posX - 1;otherSideY = posY;
+            if(otherSideX < 0) otherSideX = mazeWidth - 1;
+            maze[posY][posX].left ^= 1;
+            maze[otherSideY][otherSideX].right ^= 1;
+
+            //right
+            otherSideX = posX + 1;otherSideY = posY;
+            if(otherSideX >= mazeWidth) otherSideX = 0;
+            maze[posY][posX].right ^= 1;
+            maze[otherSideY][otherSideX].left ^= 1;
+
+            return true;
+        }
+        function findPosInArray(x,y,a) { // 在数组a中是否找到坐标(x,y)的对象
+            return a.find(pos => (pos.x == x && pos.y == y)) != undefined;
+        }
+        // 反转标记
+        let numInversions = 0;
+        let inversions = [];
+        function generateInversion(){
+            numInversions = Math.floor(Math.random() * 3 + 5); // 反转标记数量，可根据需要调整
+            inversions = [];
+            for (let i = 0; i < numInversions; i++) {
+                let inversionX = 0;
+                let inversionY = 0;
+                do {
+                    inversionX = Math.floor(Math.random() * mazeWidth);
+                    inversionY = Math.floor(Math.random() * mazeHeight);
+                } while(findPosInArray(inversionX, inversionY, inversions));
+                const inversion = {
+                    x: inversionX,
+                    y: inversionY,
+                    color: 'rgba(0,255,255,0.5)',
+                    draw() {
+                        ctx.fillStyle = this.color;
+                        ctx.fillRect(margainLeftRight + this.x * cellSize, margainTopButton + this.y * cellSize, cellSize, cellSize);
+                    }
+                };
+                inversions.push(inversion);
+                // inverseWall(inversionX,inversionY);
+            }
+        }
+        generateInversion();
+
+        // 加速道具数组
+        const numSpeedUps = Math.floor(Math.random() * 2 + 1); // 加速道具数量，可根据需要调整
+        const speedUps = [];
+        for (let i = 0; i < numSpeedUps; i++) {
+            let speedUpX = Math.floor(Math.random() * mazeWidth);
+            let speedUpY = Math.floor(Math.random() * mazeHeight);
+            const speedUp = {
+                x: speedUpX,
+                y: speedUpY,
+                color: 'rgba(255,0,255,0.58)',
+                draw() {
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(margainLeftRight + this.x * cellSize, margainTopButton + this.y * cellSize, cellSize, cellSize);
+                }
+            };
+            speedUps.push(speedUp);
+        }
+        // 加速效果相关变量
+        let isSpeeding = false;
+        let speedDuration = 0;
+
+        // 玩家
+        // const playerX = Math.floor(Math.random() * mazeWidth);
+        // const playerY = Math.floor(Math.random() * mazeHeight);
+        const player = {
+            x: 0,
+            y: 0,
+            targetX: 0,
+            targetY: 0,
+            color: 'rgb(0,0,255)',
+            speed: 5,
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(margainLeftRight + this.x * cellSize, margainTopButton + this.y * cellSize, cellSize, cellSize);
+            },
+            moveTo(targetX, targetY, direction) {
+                // if (targetX < 0 || targetX >= mazeWidth || targetY < 0 || targetY >= mazeHeight) return;
+
+                // 检查墙
+                if (targetX > this.targetX && maze[this.targetY][this.targetX].right === 1) return;
+                if (targetX < this.targetX && maze[this.targetY][this.targetX].left === 1) return;
+                if (targetY > this.targetY && maze[this.targetY][this.targetX].bottom === 1) return;
+                if (targetY < this.targetY && maze[this.targetY][this.targetX].top === 1) return;
+
+                // 边缘缺口自动传送
+                if (targetX < 0) targetX = mazeWidth - 1;
+                if (targetX >= mazeWidth) targetX = 0;
+                if (targetY < 0) targetY = mazeHeight - 1;
+                if (targetY >= mazeHeight) targetY = 0;
+
+                // 设置新的目标位置
+                this.targetX = targetX;
+                this.targetY = targetY;
+
+                // 踩到反转标记
+                for(const inversion of inversions) {
+                    if(this.targetX == inversion.x && this.targetY == inversion.y) {
+                        if(!inverseWall(inversion.x,inversion.y)) alert("player");
+                        break;
+                    }
+                }
+                // 加速道具的效果
+                if(isSpeeding) {
+                    switch(direction) {
+                        case 'top':
+                            this.moveTo(this.targetX, this.targetY - 1, direction);
+                            break;
+                        case 'bottom':
+                            this.moveTo(this.targetX, this.targetY + 1, direction);
+                            break;
+                        case 'left':
+                            this.moveTo(this.targetX - 1, this.targetY, direction);
+                            break;
+                        case 'right':
+                            this.moveTo(this.targetX + 1, this.targetY, direction);
+                            break;
+                    }
+                }
+
+            },
+            update() {
+                let spd = Math.ceil(Math.abs(this.x - this.targetX) + Math.abs(this.y - this.targetY) ) * this.speed;
+                if (this.x < this.targetX) {
+                    this.x = Math.min(this.x + spd / cellSize, this.targetX);
+                } else if (this.x > this.targetX) {
+                    this.x = Math.max(this.x - spd / cellSize, this.targetX);
+                }
+                if (this.y < this.targetY) {
+                    this.y = Math.min(this.y + spd / cellSize, this.targetY);
+                } else if (this.y > this.targetY) {
+                    this.y = Math.max(this.y - spd / cellSize, this.targetY);
+                }
+            }
+        };
+
+        // 出口
+        let exitX, exitY;
+        const edges = ['top', 'right', 'bottom', 'left'];
+        let randomEdge;
+        function generateExit() {
+            let lastX = exit.x,lastY = exit.y;
+            do {
+                /*
+                randomEdge = edges[Math.floor(Math.random() * edges.length)];
+                switch (randomEdge) {
+                    case 'top':
+                        exitX = Math.floor(Math.random() * mazeWidth);
+                        exitY = 0;
+                        maze[exitY][exitX].top = 0;
+                        break;
+                    case 'right':
+                        exitX = mazeWidth - 1;
+                        exitY = Math.floor(Math.random() * mazeHeight);
+                        maze[exitY][exitX].right = 0;
+                        break;
+                    case 'bottom':
+                        exitX = Math.floor(Math.random() * mazeWidth);
+                        exitY = mazeHeight - 1;
+                        maze[exitY][exitX].bottom = 0;
+                        break;
+                    case 'left':
+                        exitX = 0;
+                        exitY = Math.floor(Math.random() * mazeHeight);
+                        maze[exitY][exitX].left = 0;
+                        break;
+                }
+                */
+                exitX = Math.floor(Math.random() * mazeWidth);
+                exitY = Math.floor(Math.random() * mazeHeight);
+                exit.x=exitX;
+                exit.y=exitY;
+            } while(exit.x == player.x && exit.y == player.y || exit.x == lastX && exit.y == lastY);
+        }
+        const exit = {
+            x: 0,
+            y: 0,
+            color: 'rgba(0,255,0,1.0)',//white
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(margainLeftRight + this.x * cellSize , margainTopButton + this.y * cellSize , cellSize , cellSize );
+            }
+        };
+        generateExit();
+
+        // 敌人数组
+        let numEnemies = 0; // 敌人数量
+        let enemies = [];
+        function generateEnemy(){
+            numEnemies = Math.floor(Math.random() * 3 + 5); // 敌人数量
+            enemies = [];
+            for (let i = 0; i < numEnemies; i++) {
+                let xx = exit.x;//Math.floor(Math.random() * mazeWidth);
+                let yy = exit.y;//Math.floor(Math.random() * mazeHeight);
+                let kk = Math.floor(Math.random() * 2);
+                const enemy = {
+                    x: xx,
+                    y: yy,
+                    targetX: xx,
+                    targetY: yy,
+                    color: (kk == 0 ? 'red' : 'rgb(165,42,42)'),
+                    speed: Math.random() * 3 + 2 - kk, // 随机速度
+                    targetPortalIndex: Math.floor(Math.random() * portals.length), // 随机目标传送门
+                    kind: kk, // 种类（0：追逐可穿过 1：追逐不可穿过）
+                    pathToPlayer: [],
+                    draw() {
+                        ctx.fillStyle = this.color;
+                        ctx.fillRect(margainLeftRight + this.x * cellSize, margainTopButton + this.y * cellSize, cellSize, cellSize);
+                        let oppositeX = this.x,oppositeY = this.y;// 另一端的对应坐标
+                        // 边缘缺口自动传送
+                        if (oppositeX < 0) oppositeX += mazeWidth;
+                        if (oppositeX >= mazeWidth) oppositeX -= mazeWidth;
+                        if (oppositeY < 0) oppositeY += mazeHeight;
+                        if (oppositeY >= mazeHeight) oppositeY -= mazeHeight;
+                        if(oppositeX != this.x || oppositeY != this.y)
+                            ctx.fillRect(margainLeftRight + oppositeX * cellSize, margainTopButton + oppositeY * cellSize, cellSize, cellSize);
+                    },
+                    update() {
+                        let spd = Math.ceil(Math.abs(this.x - this.targetX) + Math.abs(this.y - this.targetY) ) * this.speed;
+                        if(heuristic(player, exit) < 2 * player.speed) // 离出口近加速
+                            spd *= 1 + 1 / (player.speed + heuristic(player, exit));
+                        if (this.x < this.targetX) {
+                            this.x = Math.min(this.x + spd / cellSize, this.targetX);
+                        } else if (this.x > this.targetX) {
+                            this.x = Math.max(this.x - spd / cellSize, this.targetX);
+                        }
+                        if (this.y < this.targetY) {
+                            this.y = Math.min(this.y + spd / cellSize, this.targetY);
+                        } else if (this.y > this.targetY) {
+                            this.y = Math.max(this.y - spd / cellSize, this.targetY);
+                        }
+                    },
+                    checkConnection(now, plan) {
+                        // let nowX = Math.floor(now.x), nowY = Math.floor(now.y);
+                        let nowX = now.targetX, nowY = now.targetY;
+                        // console.log(maze[nowY][nowX].top,maze[nowY][nowX].right,maze[nowY][nowX].bottom,maze[nowY][nowX].left);
+                        const neighbors = getNeighbors(nowX, nowY);
+                        for (const neighbor of neighbors) {
+                            let nextX = neighbor.x, nextY = neighbor.y;
+                            if(nextX == plan.x && nextY == plan.y) {
+                                console.log("correct");
+                                return true;
+                            }
+                        }
+                        console.log("no connection");
+                        return false;
+                    },
+                    move() {
+                        if(this.x != this.targetX || this.y != this.targetY) return;
+                        // 位置还没到就别决策了，纯浪费
+
+                        let pathToPlayerBFS = this.findPathBFSAbout(player);
+                        let pathToPlayerDFS = this.findPathDFS(player);
+                        if (this.pathToPlayer.length > 0
+                        && this.pathToPlayer[0].x == this.targetX && this.pathToPlayer[0].y == this.targetY) {
+                            this.pathToPlayer.shift(); // 去掉开头
+                        }
+                        if (this.pathToPlayer.length == 0
+                        || !this.checkConnection(this, this.pathToPlayer[0])
+                        || this.pathToPlayer.length - pathToPlayerBFS > 2 * this.speed
+                        || heuristic(player, exit) < 2 * player.speed
+                        || heuristic(player,this) < 2 * this.speed
+                        ) {
+                            if(pathToPlayerBFS.length < 2 * this.speed
+                            || heuristic(player, exit) < 2 * player.speed
+                            || heuristic(player,this) < 2 * this.speed
+                            || Math.random() < 0.5)
+                                this.pathToPlayer = pathToPlayerBFS;
+                            else this.pathToPlayer = pathToPlayerDFS;
+                            console.log(this.targetX,this.targetY,this.pathToPlayer,"new path?");
+                        }
+
+                        /*
+                        let pathToPlayerAstar = this.findPathAstar(this, player);
+                        let pathToPlayerBFS = this.findPathBFSAbout(player);
+                        if(this.pathToPlayer.length == 0
+                        // || this.pathToPlayer.length - pathToPlayerBFS > this.speed
+                        || heuristic(this.pathToPlayer[this.pathToPlayer.length - 1], player) > this.speed
+                        ) {
+                            this.pathToPlayer = pathToPlayerAstar;
+                        }
+                        */
+
+                        let ind = Math.floor(Math.random() * portals.length); // 随机取一个传送门下标
+                        if (Math.random() < 0.001) this.targetPortalIndex = ind; // 0.1%的概率换目标
+                        let randomPortal;
+                        if (portals.length == 0) randomPortal = exit;
+                        else randomPortal = portals[this.targetPortalIndex];
+                        let pathToPortal = this.findPathBFS(randomPortal);
+                        let flag = false; // 是否有移动
+
+                        let pathToExit = this.findPathBFS(exit);
+
+                        if (this.pathToPlayer.length > 0) {
+                            const next = this.pathToPlayer[0];
+                            this.targetX = next.x;
+                            this.targetY = next.y;
+                            flag = true;
+                        }
+                        else if (pathToPortal.length > 0) {
+                            const next = pathToPortal[0];
+                            this.targetX = next.x;
+                            this.targetY = next.y;
+                            flag = true;
+                        }
+                        else {
+                            const neighbors = getNeighbors(this.targetX,this.targetY);
+                            if (neighbors.length > 0) {
+                                const randomNeighbor = neighbors[Math.floor(Math.random() * neighbors.length)];
+                                this.targetX = randomNeighbor.x;
+                                this.targetY = randomNeighbor.y;
+                                flag = true;
+                            }
+                        }
+                        
+                        if(flag){
+                            // 移动附加效果
+                            for(const inversion of inversions) {// 踩到反转标记上
+                                if(this.targetX == inversion.x && this.targetY == inversion.y) {
+                                    inverseWall(inversion.x,inversion.y);
+                                    break;
+                                }
+                            }
+                        }
+                        for (const portal of portals) {
+                            if (this.targetX === portal.x && this.targetY === portal.y) {
+                                let randomPortal;
+                                do {
+                                    randomPortal = portals[Math.floor(Math.random() * portals.length)];
+                                } while (randomPortal === portal);
+                                this.targetX = enemy.targetX = randomPortal.x;
+                                this.targetY = enemy.targetY = randomPortal.y;
+                                // 从传送门传送到另一个传送门
+                                randomPortal.x = Math.floor(Math.random() * mazeWidth);
+                                randomPortal.y = Math.floor(Math.random() * mazeHeight);
+                                // 重新生成去的传送门位置
+                                break;
+                            }
+                        }
+
+                        // console.log(this);
+                    },
+                    findPathDFS(goal) {
+                        const stack = [{ x: this.targetX, y: this.targetY, path: [] }];
+                        const visited = new Set();
+                        visited.add(`${this.targetX},${this.targetY}`);
+                        let ret = [];
+                        while (stack.length > 0) {
+                            const current = stack.shift(); // 最后一项
+                            if (current.x === Math.floor(goal.x) && current.y === Math.floor(goal.y)) {//
+                                // if(Math.random() < 0.5) return current.path;
+                                ret.push(current.path);
+                            }
+
+                            const neighbors = getNeighbors(current.x, current.y);
+                            for (const neighbor of neighbors) {
+                                let nextX = neighbor.x, nextY = neighbor.y;// 实际位置（可能有传送）
+                                if (neighbor.x < 0) nextX = mazeWidth - 1;
+                                if (neighbor.x >= mazeWidth) nextX = 0;
+                                if (neighbor.y < 0) nextY= mazeHeight - 1;
+                                if (neighbor.y >= mazeHeight) nextY = 0;
+                                // 边缘缺口自动传送
+                                const key = `${nextX},${nextY}`;
+                                if (!visited.has(key)) {
+                                    visited.add(key);
+                                    neighbor.x = nextX;neighbor.y = nextY;const newPath = [...current.path, neighbor];
+                                    // const newPath = [...current.path, neighbor];// 路径中可能记录越界的位置
+                                    stack.unshift({ x: nextX, y: nextY, path: newPath });
+                                }
+                            }
+                        }
+                        if(ret.length > 0)
+                            return ret[Math.floor(Math.random() * ret.length)];//return ret[ret.length - 1];// return ret[Math.min(ret.length - 1,3)];
+                        return [];
+                    },
+                    findPathBFSAbout(goal, sx = this.targetX, sy = this.targetY) {
+                        const queue = [{ x: sx, y: sy, path: [] }];
+                        const visited = new Set();
+                        visited.add(`${sx},${sy}`);
+                        let ret = [];
+                        while (queue.length > 0) {
+                            const current = queue.shift(); // 最后一项
+                            if (current.x === Math.floor(goal.x) && current.y === Math.floor(goal.y)) {//
+                                // if(Math.random() < 0.5) return current.path;
+                                if(ret.length == 0 || current.path.length - ret.length < 2 * this.speed)
+                                    ret.push(current.path);
+                                else break;
+                            }
+
+                            const neighbors = getNeighbors(current.x, current.y);
+                            for (const neighbor of neighbors) {
+                                let nextX = neighbor.x, nextY = neighbor.y;// 实际位置（可能有传送）
+                                if (neighbor.x < 0) nextX = mazeWidth - 1;
+                                if (neighbor.x >= mazeWidth) nextX = 0;
+                                if (neighbor.y < 0) nextY= mazeHeight - 1;
+                                if (neighbor.y >= mazeHeight) nextY = 0;
+                                // 边缘缺口自动传送
+                                const key = `${nextX},${nextY}`;
+                                if (!visited.has(key)) {
+                                    if(nextX != goal.x || nextY != goal.y) visited.add(key);
+                                    neighbor.x = nextX;neighbor.y = nextY;const newPath = [...current.path, neighbor];
+                                    // const newPath = [...current.path, neighbor];// 路径中可能记录越界的位置
+                                    queue.push({ x: nextX, y: nextY, path: newPath });
+                                }
+                            }
+                        }
+                        if(ret.length > 0)
+                            return ret[Math.floor(Math.random() * ret.length)];//return ret[ret.length - 1];// return ret[Math.min(ret.length - 1,3)];
+                        return [];
+                    },
+                    findPathBFS(goal, sx = this.targetX, sy = this.targetY) {
+                        const queue = [{ x: sx, y: sy, path: [] }];
+                        const visited = new Set();
+                        visited.add(`${sx},${sy}`);
+                        while (queue.length > 0) {
+                            const current = queue.shift(); // 最后一项
+                            if (current.x === Math.floor(goal.x) && current.y === Math.floor(goal.y)) {//
+                                return current.path;
+                            }
+
+                            const neighbors = getNeighbors(current.x, current.y);
+                            for (const neighbor of neighbors) {
+                                let nextX = neighbor.x, nextY = neighbor.y;// 实际位置（可能有传送）
+                                if (neighbor.x < 0) nextX = mazeWidth - 1;
+                                if (neighbor.x >= mazeWidth) nextX = 0;
+                                if (neighbor.y < 0) nextY= mazeHeight - 1;
+                                if (neighbor.y >= mazeHeight) nextY = 0;
+                                // 边缘缺口自动传送
+                                const key = `${nextX},${nextY}`;
+                                if (!visited.has(key)) {
+                                    if(nextX != goal.x || nextY != goal.y) visited.add(key);
+                                    neighbor.x = nextX;neighbor.y = nextY;const newPath = [...current.path, neighbor];
+                                    // const newPath = [...current.path, neighbor];// 路径中可能记录越界的位置
+                                    queue.push({ x: nextX, y: nextY, path: newPath });
+                                }
+                            }
+                        }
+                        return [];
+                    },
+                    findPathAstar(enemy, player, maxDetourSteps = 5) {
+                        const openSet = [];
+                        const closedSet = [];
+                        openSet.push(enemy);
+
+                        const cameFrom = {};
+                        const gScore = {};
+                        const fScore = {};
+
+                        // 初始化 gScore 和 fScore
+                        for (let y = 0; y < mazeHeight; y++) {
+                            for (let x = 0; x < mazeWidth; x++) {
+                                const node = { x, y };
+                                gScore[`${x},${y}`] = Infinity;
+                                fScore[`${x},${y}`] = Infinity;
+                            }
+                        }
+                        gScore[`${enemy.x},${enemy.y}`] = 0;
+                        fScore[`${enemy.x},${enemy.y}`] = heuristic(enemy, player);
+
+                        let detourSteps = 0;
+
+                        while (openSet.length > 0) {
+                            // 找到 fScore 最小的节点
+                            let currentIndex = 0;
+                            for (let i = 1; i < openSet.length; i++) {
+                                if (fScore[`${openSet[i].x},${openSet[i].y}`] < fScore[`${openSet[currentIndex].x},${openSet[currentIndex].y}`]) {
+                                    currentIndex = i;
+                                }
+                            }
+                            let current = openSet[currentIndex];
+
+                            if (current.x === player.x && current.y === player.y) {
+                                const path = [];
+                                while (current) {
+                                    path.unshift(current);
+                                    current = cameFrom[`${current.x},${current.y}`];
+                                }
+                                return path;
+                            }
+
+                            openSet.splice(currentIndex, 1);
+                            closedSet.push(current);
+
+                            const neighbors = getNeighbors(current.x, current.y);
+                            for (const neighbor of neighbors) {
+                                const tentativeGScore = gScore[`${current.x},${current.y}`] + 1;
+
+                                if (closedSet.some(node => node.x === neighbor.x && node.y === neighbor.y)) {
+                                    continue;
+                                }
+
+                                if (!openSet.some(node => node.x === neighbor.x && node.y === neighbor.y)) {
+                                    openSet.push(neighbor);
+                                } else if (tentativeGScore >= gScore[`${neighbor.x},${neighbor.y}`]) {
+                                    continue;
+                                }
+
+                                cameFrom[`${neighbor.x},${neighbor.y}`] = current;
+                                gScore[`${neighbor.x},${neighbor.y}`] = tentativeGScore;
+
+                                // 引入绕路因子
+                                let heuristicValue = heuristic(neighbor, player);
+                                if (detourSteps < maxDetourSteps) {
+                                    // 这里可以根据周围环境评估，例如切断玩家前进方向等逻辑来调整启发式值
+                                    // 简单示例：随机增加一个小的绕路成本
+                                    heuristicValue += Math.random() * 2;
+                                    detourSteps++;
+                                }
+
+                                fScore[`${neighbor.x},${neighbor.y}`] = tentativeGScore + heuristicValue;
+                            }
+                        }
+
+                        return [];
+                    }
+
+                };
+                enemies.push(enemy);
+            }
+        }
+        generateEnemy();
+
+        // 绘制迷宫
+        function drawMaze() {
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 3.5;
+            for (let y = 0; y < mazeHeight; y++) {
+                for (let x = 0; x < mazeWidth; x++) {
+                    const cell = maze[y][x];
+                    if (cell.top) {
+                        ctx.beginPath();
+                        ctx.moveTo(margainLeftRight + x * cellSize, margainTopButton + y * cellSize);
+                        ctx.lineTo(margainLeftRight + (x + 1) * cellSize, margainTopButton + y * cellSize);
+                        ctx.stroke();
+                    }
+                    if (cell.right) {
+                        ctx.beginPath();
+                        ctx.moveTo(margainLeftRight + (x + 1) * cellSize, margainTopButton + y * cellSize);
+                        ctx.lineTo(margainLeftRight + (x + 1) * cellSize, margainTopButton + (y + 1) * cellSize);
+                        ctx.stroke();
+                    }
+                    if (cell.bottom) {
+                        ctx.beginPath();
+                        ctx.moveTo(margainLeftRight + x * cellSize, margainTopButton + (y + 1) * cellSize);
+                        ctx.lineTo(margainLeftRight + (x + 1) * cellSize, margainTopButton + (y + 1) * cellSize);
+                        ctx.stroke();
+                    }
+                    if (cell.left) {
+                        ctx.beginPath();
+                        ctx.moveTo(margainLeftRight + x * cellSize, margainTopButton + y * cellSize);
+                        ctx.lineTo(margainLeftRight + x * cellSize, margainTopButton + (y + 1) * cellSize);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        function checkSpeedUpCollision() { // 检查玩家加速道具触发
+            for (const speedUp of speedUps) {
+                if (player.targetX === speedUp.x && player.targetY === speedUp.y) {
+                    isSpeeding = true;
+                    speedDuration = 1000; // 加速效果持续时间，可根据需要调整
+                    speedUp.x = Math.floor(Math.random() * mazeWidth);
+                    speedUp.y = Math.floor(Math.random() * mazeHeight);
+                    speedProgressBar.style.display = 'block'; // 显示进度条
+                    speedProgress.style.width = '100%'; // 进度条初始为 100%
+                    break;
+                }
+            }
+        }
+        // 更新加速效果持续时间
+        function updateSpeedDuration() {
+            if (isSpeeding) {
+                speedDuration--;
+                if (speedDuration <= 0) {
+                    isSpeeding = false;
+                    speedProgressBar.style.display = 'none'; // 隐藏进度条
+                } else {
+                    const progressPercentage = (speedDuration / 1000) * 100; // 计算进度百分比
+                    speedProgress.style.width = `${progressPercentage}%`; // 更新进度条宽度
+                }
+            }
+        }
+        function resetSpeedUp() { // 重新设置加速状态
+            isSpeeding = false;
+            speedDuration = 0;
+            speedProgressBar.style.display = 'none'; // 隐藏进度条
+        }
+
+        // 绘制游戏元素
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawMaze();
+            enemies.forEach(enemy => enemy.draw());
+            player.draw();
+            portals.forEach(portal => portal.draw());
+            inversions.forEach(inversion => inversion.draw());
+            speedUps.forEach(speedUp => speedUp.draw());
+            exit.draw();
+        }
+
+        function restartProgram() {
+            location.reload();
+        }
+        // 检查是否到达出口
+        function relocateEnemy(){ // 重新把敌人放回出口
+            for (const enemy of enemies) {
+                enemy.x = enemy.targetX = exit.x;
+                enemy.y = enemy.targetY = exit.y;
+            }
+        }
+        function reloadGame() { // 再来一局游戏
+            generateMaze();
+            generateExit();
+            generateEnemy();
+            generateInversion();
+            resetSpeedUp();
+        }
+        function checkExit() {
+            if (Math.round(player.targetX) === exit.x && Math.round(player.targetY) === exit.y) {
+                reloadGame();
+                //ctx.clearRect(0, 0, canvas.width, canvas.height);
+                //alert('恭喜你，成功逃出迷宫！');
+                return true;
+            }
+            return false;
+        }
+        // 检查是否碰到传送门
+        function checkPortal() {
+            // 检查玩家是否碰到传送门
+            for (const portal of portals) {
+                if (player.targetX === portal.x && player.targetY === portal.y) {
+                    /*
+                    const newX = Math.floor(Math.random() * mazeWidth);
+                    const newY = Math.floor(Math.random() * mazeHeight);
+                    player.x = newX;
+                    player.y = newY;
+                    player.targetX = newX;
+                    player.targetY = newY;
+                    // 重新生成传送门位置
+                    portal.x = Math.floor(Math.random() * mazeWidth);
+                    portal.y = Math.floor(Math.random() * mazeHeight);
+                    */
+                    let randomPortalId;
+                    do {
+                        randomPortalId = Math.floor(Math.random() * portals.length);
+                    } while (portals[randomPortalId] === portal);
+                    /*player.x = */player.targetX = portals[randomPortalId].x;
+                    /*player.y = */player.targetY = portals[randomPortalId].y;
+                    // 从传送门传送到另一个传送门
+                    let lastX = portals[randomPortalId].x,lastY = portals[randomPortalId].y;
+                    do {
+                        portals[randomPortalId].x = Math.floor(Math.random() * mazeWidth);
+                        portals[randomPortalId].y = Math.floor(Math.random() * mazeHeight);
+                    } while (portals[randomPortalId].x == lastX && portals[randomPortalId].y == lastY);
+                    // 重新生成去的传送门位置
+                    break;
+                }
+            }
+        }
+
+        // 检查敌人是否碰到玩家
+        function checkEnemyCollision() {
+            let flag = false;
+            for (const enemy of enemies) {
+                if ((enemy.kind == 0 && enemy.x == player.x && enemy.y == player.y)
+                 || (enemy.kind == 1 && heuristic(player, enemy) < 0.5) && enemy.targetX == player.targetX && enemy.targetY == player.targetY) {
+                    // console.log(enemy);
+                    // console.log(player);
+                    enemy.x = enemy.targetX = mazeWidth;
+                    enemy.y = enemy.targetY = mazeHeight;
+                    flag = true;
+                }
+            }
+            if(flag){
+                reloadGame();
+                //ctx.clearRect(0, 0, canvas.width, canvas.height);
+                alert('很遗憾，你被敌人抓住了！');
+                //restartProgram();
+            }
+        }
+
+        let countSuffocation = 0; // 窒息计数器（防止alert在屏幕更新前执行）
+        function checkSuffocation(){// 检查玩家是否封闭窒息
+            /*
+            if(maze[player.targetY][player.targetX].top == 1
+            && maze[player.targetY][player.targetX].bottom == 1
+            && maze[player.targetY][player.targetX].left == 1
+            && maze[player.targetY][player.targetX].right == 1) {
+                countSuffocation ++ ;
+                if(countSuffocation >= 100){
+                    reloadGame();
+                    alert('最绝望的死法……');
+                }
+            }
+            else countSuffocation = 0;
+            */
+            const queue = [{ x: player.targetX, y: player.targetY }];
+            const visited = new Set();
+            visited.add(`${this.x},${this.y}`);
+            let cnt = 0;// 玩家周围联通的格子数
+            const minRespiration = 10; // 能呼吸的最小格子数
+            while (queue.length > 0) {
+                const current = queue.shift();
+                const neighbors = getNeighbors(current.x, current.y);
+                for (const neighbor of neighbors) {
+                    let nextX = neighbor.x, nextY = neighbor.y;// 实际位置（可能有边缘传送）
+                    if (neighbor.x < 0) nextX = mazeWidth - 1;
+                    if (neighbor.x >= mazeWidth) nextX = 0;
+                    if (neighbor.y < 0) nextY= mazeHeight - 1;
+                    if (neighbor.y >= mazeHeight) nextY = 0;
+                    // 边缘缺口自动传送
+                    const key = `${nextX},${nextY}`;
+                    if (!visited.has(key)) {
+                        visited.add(key);
+                        neighbor.x = nextX;
+                        neighbor.y = nextY;
+                        queue.push({ x: nextX, y: nextY });
+                        cnt ++ ;
+                        if(cnt >= minRespiration) break;
+                    }
+                    if(cnt >= minRespiration) break;
+                }
+            }
+            if(cnt < minRespiration) { // 无法呼吸！
+                countSuffocation ++ ;
+                if(countSuffocation >= 100){
+                    maze[player.targetY][player.targetX].top
+                    = maze[player.targetY][player.targetX].bottom
+                    = maze[player.targetY][player.targetX].left
+                    = maze[player.targetY][player.targetX].right
+                    = 0;// 防止重复死亡
+                    reloadGame();
+                    alert('最绝望的死法……');
+                }
+            }
+            else countSuffocation = 0;
+
+        }
+        // 游戏循环
+        function gameLoop() {
+            player.update();
+            enemies.forEach(enemy => {
+                enemy.update();
+                enemy.move();
+            });
+            draw();
+            checkPortal();
+            checkSpeedUpCollision();
+            updateSpeedDuration();
+            if(!checkExit()){
+                checkEnemyCollision();
+                checkSuffocation();
+            }
+            requestAnimationFrame(gameLoop);
+        }
+        gameLoop();
+
+        // 键盘事件监听\\
+        /*document.addEventListener('keydown', function (event) {
+            console.log(event.key)
+            switch (event.key) {
+                case 'W':
+                case 'w':
+                    player.moveTo(player.targetX, player.targetY - 1, 'top');
+                    break;
+                case 'S':
+                case 's':
+                    player.moveTo(player.targetX, player.targetY + 1, 'bottom');
+                    break;
+                case 'A':
+                case 'a':
+                    player.moveTo(player.targetX - 1, player.targetY, 'left');
+                    break;
+                case 'D':
+                case 'd':
+                    player.moveTo(player.targetX + 1, player.targetY, 'right');
+                    break;
+        }*/
+        document.addEventListener('keydown', function (event) {
+            switch (event.key) {
+                case 'ArrowUp':
+                    player.moveTo(player.targetX, player.targetY - 1, 'top');
+                    break;
+                case 'ArrowDown':
+                    player.moveTo(player.targetX, player.targetY + 1, 'bottom');
+                    break;
+                case 'ArrowLeft':
+                    player.moveTo(player.targetX - 1, player.targetY, 'left');
+                    break;
+                case 'ArrowRight':
+                    player.moveTo(player.targetX + 1, player.targetY, 'right');
+                    break;
+            }
+        });
+
+    </script>
+</body>
+
+</html>
